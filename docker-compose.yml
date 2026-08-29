@@ -20,5 +20,18 @@ services:
       retries: 5
     restart: unless-stopped
 
+  master:
+    build:
+      context: .
+      dockerfile: master/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
