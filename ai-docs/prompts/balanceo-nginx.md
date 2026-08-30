@@ -21,7 +21,7 @@ Necesito:
 7. Comprobar que la API continúe funcionando si una instancia se detiene.
 8. Implementar los cambios sin perder los eventos almacenados.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 La IA propuso mantener el servicio original `master` y agregar una segunda instancia llamada `master_replica`.
 

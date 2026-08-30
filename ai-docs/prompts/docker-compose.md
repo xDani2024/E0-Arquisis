@@ -29,7 +29,7 @@ También necesito:
 
 Explícame la configuración propuesta y los comandos necesarios para construir, iniciar y comprobar los servicios.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 La IA propuso utilizar un archivo `docker-compose.yml` con tres servicios:
 

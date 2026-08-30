@@ -14,7 +14,7 @@ Necesito implementar filtros para todas las propiedades del evento, incluidos ca
 
 La implementación debe utilizar sesiones de SQLAlchemy, mantener la paginación después de aplicar filtros y entregar respuestas JSON con los nombres establecidos en el enunciado.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 ### Serialización
 
@@ -102,61 +102,3 @@ La entrada incorrecta responde:
   "detail": "constraints must be valid JSON"
 }
 ```
-
-## Pruebas realizadas
-
-Se creó un evento local mediante:
-
-```bash
-curl -X POST http://127.0.0.1:8000/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "idpk": "550e8400-e29b-41d4-a716-446655440000",
-    "type": "demand-set",
-    "packageBody": {
-      "demands": [
-        {
-          "city": "Santiago",
-          "demand": 1013.123,
-          "unit": "GW"
-        }
-      ],
-      "validUntil": "2026-12-12T00:00:00Z",
-      "metaContent": "prueba local",
-      "constraints": {}
-    }
-  }'
-```
-
-Se probó el historial:
-
-```bash
-curl "http://127.0.0.1:8000/history"
-```
-
-Se probó la paginación:
-
-```bash
-curl "http://127.0.0.1:8000/history?page=1&limit=1"
-```
-
-Se probó el detalle:
-
-```bash
-curl "http://127.0.0.1:8000/history/1"
-```
-
-Se probó el error 404:
-
-```bash
-curl -i "http://127.0.0.1:8000/history/999"
-```
-
-También se probaron individualmente los filtros por ID, UUID, tipo, fecha de recepción, ciudad, demanda, unidad, fecha de validez, contenido y restricciones.
-
-Las mismas funcionalidades fueron comprobadas mediante el dominio desplegado:
-
-```text
-https://energyshark-danielamp.tech
-```
-

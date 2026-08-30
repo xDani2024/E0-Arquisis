@@ -8,7 +8,7 @@
 
 ChatGPT, modelo de OpenAI.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 La herramienta propuso crear en `master/database.py` la configuración de SQLAlchemy y la administración de las sesiones utilizadas por los endpoints de FastAPI.
 

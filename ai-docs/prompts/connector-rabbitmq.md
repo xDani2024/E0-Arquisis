@@ -8,7 +8,7 @@
 
 ChatGPT, modelo de OpenAI.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 La herramienta confirmó que el servicio `connector` funciona como intermediario entre RabbitMQ y la API `master`. Su función es consumir los eventos de demanda disponibles en la cola asignada y enviarlos mediante una solicitud HTTP POST al endpoint `/events`, donde son validados y almacenados en PostgreSQL.
 

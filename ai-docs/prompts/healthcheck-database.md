@@ -8,7 +8,7 @@
 
 ChatGPT, modelo de OpenAI.
 
-## Respuesta y apoyo recibido
+## Respuesta IA
 
 Durante la revisión, ChatGPT detectó que el endpoint `/health` de `master` respondía siempre con el estado `healthy`, pero no comprobaba si la API podía conectarse con PostgreSQL.
 
