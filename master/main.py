@@ -10,11 +10,13 @@ from master.models import Event
 from master.schemas import EventCreate
 
 import json
+import os
 
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="EnergyShark API")
+INSTANCE_NAME = os.getenv("INSTANCE_NAME", "master")
 
 def serialize_event(event: Event):
     return {
@@ -34,6 +36,7 @@ def health(
     return {
         "status": "healthy",
         "database": "connected",
+        "instance": INSTANCE_NAME,
     }
 
 @app.post("/events", status_code=status.HTTP_201_CREATED)
