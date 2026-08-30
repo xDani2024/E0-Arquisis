@@ -26,8 +26,15 @@ def serialize_event(event: Event):
     }
 
 @app.get("/health")
-def health():
-    return {"status": "healthy"}
+def health(
+    database: Session = Depends(get_db),
+):
+    database.execute(select(1))
+
+    return {
+        "status": "healthy",
+        "database": "connected",
+    }
 
 @app.post("/events", status_code=status.HTTP_201_CREATED)
 def receive_event(

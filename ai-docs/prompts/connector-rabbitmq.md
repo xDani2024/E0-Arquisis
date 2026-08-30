@@ -22,51 +22,237 @@ A partir de este flujo, se generó una propuesta para implementar `connector/mai
 
 ## Código generado con apoyo de IA
 
-El contenido inicial de `connector/main.py` fue propuesto completamente por ChatGPT. La propuesta incluye:
 
-* Lectura de credenciales y parámetros mediante variables de entorno.
-* Validación de las variables requeridas antes de iniciar la conexión.
-* Conexión cifrada con RabbitMQ mediante TLS y el puerto 5671.
-* Uso de `pika.BlockingConnection` para mantener una conexión activa con RabbitMQ.
-* Consumo de la cola asignada mediante `basic_consume`.
-* Conversión del mensaje recibido desde texto JSON a un objeto Python.
-* Envío del evento hacia `POST /events` mediante `requests.post`.
-* Confirmación del mensaje mediante `basic_ack` después de una respuesta exitosa de `master`.
-* Uso de `basic_nack` con reencolado cuando `master` no responde o presenta un error temporal.
-* Tratamiento de eventos duplicados cuando `master` responde con estado HTTP 409.
-* Reintento de conexión con RabbitMQ cada cinco segundos después de una desconexión.
-* Registro de la actividad y de los errores mediante `logging`.
-* Creación de un archivo de estado para utilizarlo posteriormente en el `HEALTHCHECK` del contenedor.
+```python
+import json
+import logging
+import os
+import ssl
+import time
+from pathlib import Path
 
-## Decisiones propuestas por la IA
+import pika
+import requests
 
-ChatGPT propuso las siguientes decisiones de implementación:
 
-1. Procesar un mensaje a la vez mediante `prefetch_count=1`.
-2. Confirmar cada mensaje solamente después de recibir una respuesta de `master`.
-3. Reencolar el mensaje cuando se produzca un error temporal de comunicación.
-4. No declarar ni modificar la cola o el exchange, debido a que estos elementos son administrados por el curso.
-5. Considerar el estado HTTP 409 como un evento previamente almacenado y confirmar su procesamiento.
-6. Establecer un tiempo máximo de diez segundos para cada solicitud HTTP realizada a `master`.
-7. Mantener un ciclo de reconexión para que el servicio no termine permanentemente ante una caída de RabbitMQ.
-8. Validar el contenido recibido como JSON antes de enviarlo a la API.
-9. Registrar los errores de conexión y procesamiento para facilitar su revisión.
+# Configura el formato de los mensajes mostrados en los logs.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
-## Fuentes técnicas consultadas
+logger = logging.getLogger(__name__)
 
-La propuesta fue elaborada considerando:
+# Obtiene desde el entorno los parámetros privados de RabbitMQ
+# y la dirección interna de la API master.
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5671"))
+RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD")
+RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE")
+MASTER_URL = os.getenv("MASTER_URL")
 
-* El enunciado de la Entrega 0 de EnergyShark.
-* La documentación oficial de Pika sobre `BlockingConnection`, consumo de mensajes, confirmaciones y parámetros de conexión.
-* La documentación oficial de Requests sobre solicitudes HTTP POST, envío de objetos JSON, excepciones y tiempos máximos de espera.
+# Este archivo es utilizado por el HEALTHCHECK del contenedor
+# para comprobar que el proceso connector comenzó a ejecutarse.
+HEALTH_FILE = Path("/tmp/connector_healthy")
 
-Referencias:
 
-* [Documentación oficial de Pika](https://pika.readthedocs.io/)
-* [Guía oficial de Requests](https://requests.readthedocs.io/en/latest/user/quickstart/)
+def validate_environment():
+    """Comprueba que todas las variables obligatorias estén configuradas."""
 
-## Alcance de la intervención
+    variables = {
+        "RABBITMQ_HOST": RABBITMQ_HOST,
+        "RABBITMQ_VHOST": RABBITMQ_VHOST,
+        "RABBITMQ_USER": RABBITMQ_USER,
+        "RABBITMQ_PASSWORD": RABBITMQ_PASSWORD,
+        "RABBITMQ_QUEUE": RABBITMQ_QUEUE,
+        "MASTER_URL": MASTER_URL,
+    }
 
-El código no fue copiado de una solución del curso ni de otro estudiante. Fue generado por ChatGPT específicamente para esta entrega, considerando el enunciado y la arquitectura previamente implementada en `master`.
+    missing = [
+        name
+        for name, value in variables.items()
+        if not value
+    ]
 
-La propuesta se encuentra pendiente de ejecución, revisión y pruebas por parte de la estudiante. Las credenciales reales de RabbitMQ no fueron incorporadas en la conversación ni en este documento.
+    if missing:
+        raise RuntimeError(
+            f"Missing environment variables: {', '.join(missing)}"
+        )
+
+
+def create_rabbitmq_connection():
+    """Crea una conexión AMQP cifrada con RabbitMQ."""
+
+    # Crea una configuración TLS utilizando certificados
+    # de autoridades reconocidas por el sistema.
+    ssl_context = ssl.create_default_context()
+
+    credentials = pika.PlainCredentials(
+        RABBITMQ_USER,
+        RABBITMQ_PASSWORD,
+    )
+
+    # Define los parámetros de conexión con RabbitMQ.
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        ssl_options=pika.SSLOptions(
+            ssl_context,
+            RABBITMQ_HOST,
+        ),
+        heartbeat=60,
+
+        # Limita el tiempo de espera cuando RabbitMQ
+        # bloquea temporalmente la conexión.
+        blocked_connection_timeout=30,
+    )
+
+    return pika.BlockingConnection(parameters)
+
+
+def process_message(channel, method, properties, body):
+    """Procesa un mensaje y lo envía a la API master."""
+
+    try:
+        event = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logger.exception("Invalid JSON received from RabbitMQ")
+
+        # El mensaje se confirma para retirarlo de la cola.
+        # Reencolar un JSON inválido provocaría un ciclo infinito.
+        channel.basic_ack(
+            delivery_tag=method.delivery_tag
+        )
+        return
+
+    try:
+        # Envía el evento a master mediante una solicitud HTTP POST.
+        response = requests.post(
+            MASTER_URL,
+            json=event,
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("Could not communicate with master")
+
+        # Si master está temporalmente inaccesible,
+        # el evento vuelve a la cola para intentarlo nuevamente.
+        channel.basic_nack(
+            delivery_tag=method.delivery_tag,
+            requeue=True,
+        )
+        return
+
+    if response.ok:
+        logger.info(
+            "Event sent to master with status %s",
+            response.status_code,
+        )
+
+        # Confirma el mensaje después de que master lo procese.
+        channel.basic_ack(
+            delivery_tag=method.delivery_tag
+        )
+        return
+
+    if response.status_code == 409:
+        logger.info("Duplicate event already stored")
+
+        # Un evento duplicado ya está almacenado, por lo que
+        # no es necesario mantenerlo en la cola.
+        channel.basic_ack(
+            delivery_tag=method.delivery_tag
+        )
+        return
+
+    if 400 <= response.status_code < 500:
+        logger.error(
+            "Master rejected event with status %s: %s",
+            response.status_code,
+            response.text,
+        )
+
+        # Un error de validación no se solucionará reintentando
+        # el mismo evento, por lo que se retira de la cola.
+        channel.basic_ack(
+            delivery_tag=method.delivery_tag
+        )
+        return
+
+    logger.error(
+        "Master returned status %s",
+        response.status_code,
+    )
+
+
+    # Los errores del servidor pueden ser temporales.
+    # El evento se reencola para procesarlo posteriormente.
+    channel.basic_nack(
+        delivery_tag=method.delivery_tag,
+        requeue=True,
+    )
+
+
+def consume_events():
+    """Mantiene activo el consumo de eventos y la reconexión."""
+    validate_environment()
+
+    while True:
+        connection = None
+
+        try:
+            # Crea el archivo utilizado por el HEALTHCHECK.
+            HEALTH_FILE.touch()
+
+            logger.info(
+                "Connecting to RabbitMQ at %s:%s",
+                RABBITMQ_HOST,
+                RABBITMQ_PORT,
+            )
+
+            connection = create_rabbitmq_connection()
+            channel = connection.channel()
+
+            # Procesa un mensaje a la vez para evitar retirar
+            # varios eventos antes de confirmar su almacenamiento.
+            channel.basic_qos(prefetch_count=1)
+
+            # Registra la función que procesará cada mensaje.
+            # auto_ack=False exige confirmar manualmente cada evento.
+            channel.basic_consume(
+                queue=RABBITMQ_QUEUE,
+                on_message_callback=process_message,
+                auto_ack=False,
+            )
+
+            logger.info(
+                "Waiting for events from queue %s",
+                RABBITMQ_QUEUE,
+            )
+
+            channel.start_consuming()
+
+        except KeyboardInterrupt:
+            logger.info("Connector stopped manually")
+            break
+
+        except Exception:
+            logger.exception(
+                "Connector error. Retrying in 5 seconds"
+            )
+
+            time.sleep(5)
+
+        finally:
+            # Cierra ordenadamente la conexión si continúa abierta.
+            if connection is not None and connection.is_open:
+                connection.close()
+
+
+if __name__ == "__main__":
+    consume_events()
+```

@@ -9,6 +9,7 @@ import pika
 import requests
 
 
+# Configura el formato de los mensajes mostrados en los logs.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -16,7 +17,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
+# Obtiene desde el entorno los parámetros privados de RabbitMQ
+# y la dirección interna de la API master.
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5671"))
 RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST")
@@ -25,10 +27,14 @@ RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE")
 MASTER_URL = os.getenv("MASTER_URL")
 
+# Este archivo es utilizado por el HEALTHCHECK del contenedor
+# para comprobar que el proceso connector comenzó a ejecutarse.
 HEALTH_FILE = Path("/tmp/connector_healthy")
 
 
 def validate_environment():
+    """Comprueba que todas las variables obligatorias estén configuradas."""
+
     variables = {
         "RABBITMQ_HOST": RABBITMQ_HOST,
         "RABBITMQ_VHOST": RABBITMQ_VHOST,
@@ -51,6 +57,10 @@ def validate_environment():
 
 
 def create_rabbitmq_connection():
+    """Crea una conexión AMQP cifrada con RabbitMQ."""
+
+    # Crea una configuración TLS utilizando certificados
+    # de autoridades reconocidas por el sistema.
     ssl_context = ssl.create_default_context()
 
     credentials = pika.PlainCredentials(
@@ -58,6 +68,7 @@ def create_rabbitmq_connection():
         RABBITMQ_PASSWORD,
     )
 
+    # Define los parámetros de conexión con RabbitMQ.
     parameters = pika.ConnectionParameters(
         host=RABBITMQ_HOST,
         port=RABBITMQ_PORT,
@@ -68,6 +79,9 @@ def create_rabbitmq_connection():
             RABBITMQ_HOST,
         ),
         heartbeat=60,
+
+        # Limita el tiempo de espera cuando RabbitMQ
+        # bloquea temporalmente la conexión.
         blocked_connection_timeout=30,
     )
 
@@ -75,17 +89,22 @@ def create_rabbitmq_connection():
 
 
 def process_message(channel, method, properties, body):
+    """Procesa un mensaje y lo envía a la API master."""
+
     try:
         event = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         logger.exception("Invalid JSON received from RabbitMQ")
 
+        # El mensaje se confirma para retirarlo de la cola.
+        # Reencolar un JSON inválido provocaría un ciclo infinito.
         channel.basic_ack(
             delivery_tag=method.delivery_tag
         )
         return
 
     try:
+        # Envía el evento a master mediante una solicitud HTTP POST.
         response = requests.post(
             MASTER_URL,
             json=event,
@@ -94,6 +113,8 @@ def process_message(channel, method, properties, body):
     except requests.RequestException:
         logger.exception("Could not communicate with master")
 
+        # Si master está temporalmente inaccesible,
+        # el evento vuelve a la cola para intentarlo nuevamente.
         channel.basic_nack(
             delivery_tag=method.delivery_tag,
             requeue=True,
@@ -106,6 +127,7 @@ def process_message(channel, method, properties, body):
             response.status_code,
         )
 
+        # Confirma el mensaje después de que master lo procese.
         channel.basic_ack(
             delivery_tag=method.delivery_tag
         )
@@ -114,6 +136,8 @@ def process_message(channel, method, properties, body):
     if response.status_code == 409:
         logger.info("Duplicate event already stored")
 
+        # Un evento duplicado ya está almacenado, por lo que
+        # no es necesario mantenerlo en la cola.
         channel.basic_ack(
             delivery_tag=method.delivery_tag
         )
@@ -126,6 +150,8 @@ def process_message(channel, method, properties, body):
             response.text,
         )
 
+        # Un error de validación no se solucionará reintentando
+        # el mismo evento, por lo que se retira de la cola.
         channel.basic_ack(
             delivery_tag=method.delivery_tag
         )
@@ -136,6 +162,9 @@ def process_message(channel, method, properties, body):
         response.status_code,
     )
 
+
+    # Los errores del servidor pueden ser temporales.
+    # El evento se reencola para procesarlo posteriormente.
     channel.basic_nack(
         delivery_tag=method.delivery_tag,
         requeue=True,
@@ -143,12 +172,14 @@ def process_message(channel, method, properties, body):
 
 
 def consume_events():
+    """Mantiene activo el consumo de eventos y la reconexión."""
     validate_environment()
 
     while True:
         connection = None
 
         try:
+            # Crea el archivo utilizado por el HEALTHCHECK.
             HEALTH_FILE.touch()
 
             logger.info(
@@ -160,8 +191,12 @@ def consume_events():
             connection = create_rabbitmq_connection()
             channel = connection.channel()
 
+            # Procesa un mensaje a la vez para evitar retirar
+            # varios eventos antes de confirmar su almacenamiento.
             channel.basic_qos(prefetch_count=1)
 
+            # Registra la función que procesará cada mensaje.
+            # auto_ack=False exige confirmar manualmente cada evento.
             channel.basic_consume(
                 queue=RABBITMQ_QUEUE,
                 on_message_callback=process_message,
@@ -187,6 +222,7 @@ def consume_events():
             time.sleep(5)
 
         finally:
+            # Cierra ordenadamente la conexión si continúa abierta.
             if connection is not None and connection.is_open:
                 connection.close()
 
