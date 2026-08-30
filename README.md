@@ -12,7 +12,7 @@ API desarrollada para recibir, almacenar y consultar eventos de demanda eléctri
 - Proveedor cloud: AWS
 - Instancia: EC2 `t3.micro`
 - Sistema operativo: Ubuntu
-- Parte variable seleccionada: HTTPS
+- Parte variable seleccionada: HTTPS y balanceo de carga con Nginx
 
 ## Arquitectura
 
@@ -20,6 +20,7 @@ El sistema utiliza los siguientes componentes:
 
 - `connector`: consume eventos desde RabbitMQ mediante AMQPS.
 - `master`: API desarrollada con FastAPI.
+- `master_replica`: segunda instancia de la API FastAPI utilizada para balanceo de carga.
 - `database`: base de datos PostgreSQL 17.
 - `nginx`: proxy inverso instalado directamente en EC2.
 - `certbot`: administra el certificado HTTPS de Let's Encrypt.
@@ -295,9 +296,48 @@ La renovación fue comprobada mediante:
 sudo certbot renew --dry-run
 ```
 
-## Balanceo de carga
+## Parte variable: balanceo de carga con Nginx
 
-No implementado. Para la parte variable se seleccionó HTTPS, cuyos tres requisitos fueron completados. El balanceo de carga corresponde a la segunda alternativa opcional.
+| Requisito | Estado | Descripción |
+|---|---|---|
+| RF1 | Logrado | La aplicación master se ejecuta en dos contenedores independientes llamados `master` y `master_replica`. |
+| RF2 | Logrado | Nginx puede alcanzar individualmente ambas instancias mediante `127.0.0.1:8000` y `127.0.0.1:8001`. |
+
+Nginx utiliza el siguiente grupo de backends:
+
+```nginx
+upstream energyshark_backend {
+    server 127.0.0.1:8000;
+    server 127.0.0.1:8001;
+}
+```
+
+Las instancias se identifican mediante la variable `INSTANCE_NAME`:
+
+```text
+master-1 → 127.0.0.1:8000
+master-2 → 127.0.0.1:8001
+```
+
+El endpoint `/health` informa qué instancia atendió la solicitud:
+
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "instance": "master-1"
+}
+```
+
+Nginx agrega también la cabecera:
+
+```text
+X-EnergyShark-Backend
+```
+
+Las pruebas mostraron distribución alternada entre los puertos 8000 y 8001.
+
+También se detuvo temporalmente `master-1` para comprobar la continuidad del servicio. Nginx reintentó la solicitud mediante `master-2` y la API permaneció disponible. Después de la prueba, ambas instancias quedaron nuevamente saludables.
 
 ## Nginx
 

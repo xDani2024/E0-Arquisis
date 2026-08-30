@@ -24,10 +24,27 @@ services:
       dockerfile: master/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      INSTANCE_NAME: master-1
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       database:
+        condition: service_healthy
+    restart: unless-stopped
+
+  master_replica:
+    build:
+      context: .
+      dockerfile: master/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      INSTANCE_NAME: master-2
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      master:
         condition: service_healthy
     restart: unless-stopped
 
