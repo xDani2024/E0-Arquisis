@@ -5,14 +5,15 @@ API desarrollada para recibir, almacenar y consultar eventos de demanda eléctri
 ## Información general
 
 - Estudiante: Daniela Muñoz Poblete
-- Dominio principal: https://energyshark-danielamp.tech
-- Dominio alternativo: https://www.energyshark-danielamp.tech
+- Dominios: 
+    * https://energyshark-danielamp.tech
+    * https://www.energyshark-danielamp.tech
 - Healthcheck: https://energyshark-danielamp.tech/health
 - Documentación Swagger: https://energyshark-danielamp.tech/docs
 - Proveedor cloud: AWS
 - Instancia: EC2 `t3.micro`
 - Sistema operativo: Ubuntu
-- Parte variable seleccionada: HTTPS y balanceo de carga con Nginx
+- Parte variable seleccionada (ambas): HTTPS y balanceo de carga con Nginx
 
 ## Arquitectura
 
@@ -413,13 +414,3 @@ La IA fue utilizada como apoyo para:
 - Diagnosticar errores de Docker y DNS.
 - Configurar Nginx, HTTPS y Certbot.
 - Preparar pruebas y documentación.
-
-## Seguridad
-
-- La llave `.pem` no está incluida en GitHub.
-- El archivo `.env` no está incluido en GitHub.
-- Las credenciales no están incorporadas directamente en el código.
-- PostgreSQL no está expuesto públicamente en EC2.
-- RabbitMQ utiliza TLS.
-- El acceso público utiliza HTTPS.
-- Los certificados y llaves privadas permanecen en EC2.
