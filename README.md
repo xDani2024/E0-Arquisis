@@ -5,15 +5,19 @@ API desarrollada para recibir, almacenar y consultar eventos de demanda eléctri
 ## Información general
 
 - Estudiante: Daniela Muñoz Poblete
-- Dominios: 
+- Repositorio: https://github.com/xDani2024/E0-Arquisis
+- API
     * https://energyshark-danielamp.tech
     * https://www.energyshark-danielamp.tech
 - Healthcheck: https://energyshark-danielamp.tech/health
 - Documentación Swagger: https://energyshark-danielamp.tech/docs
+- IP pública EC2: `18.227.248.78`
+- Usuario SSH: `ubuntu`
+- Región AWS: `us-east-2` (Ohio)
 - Proveedor cloud: AWS
 - Instancia: EC2 `t3.micro`
 - Sistema operativo: Ubuntu
-- Parte variable seleccionada (ambas): HTTPS y balanceo de carga con Nginx
+- Partes variables implementadas: HTTPS y balanceo de carga con Nginx
 
 ## Arquitectura
 
