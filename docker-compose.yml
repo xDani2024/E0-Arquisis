@@ -33,5 +33,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  connector:
+    build:
+      context: .
+      dockerfile: connector/Dockerfile
+    environment:
+      RABBITMQ_HOST: ${RABBITMQ_HOST}
+      RABBITMQ_PORT: ${RABBITMQ_PORT}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_QUEUE: ${RABBITMQ_QUEUE}
+      MASTER_URL: ${MASTER_URL}
+    depends_on:
+      master:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
